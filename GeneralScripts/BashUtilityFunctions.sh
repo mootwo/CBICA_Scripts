@@ -22,10 +22,8 @@ file1=$1
 file2=$2
 
 TMP=`mktemp -d --tmpdir=${SBIA_TMPDIR} `
-checkandexit $?
 
 3dcalc -a ${file1} -b ${file2} -prefix ${TMP}/diff.nii.gz -expr 'a-b'
-checkandexit $?
 
 n=`3dBrickStat -non-zero -count ${TMP}/diff.nii.gz`
 if [ ${n} -eq 0 ]
