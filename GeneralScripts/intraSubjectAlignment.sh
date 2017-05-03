@@ -120,7 +120,7 @@ then
 		-searchry -30 +30 \
 		-searchrz -30 +30 \
 		-coarsesearch 15 \
-		-finesearch  	
+		-finesearch  6	
 
 else
 	bn=$( basename ${outPath} )
@@ -139,7 +139,7 @@ else
 		-searchry -30 +30 \
 		-searchrz -30 +30 \
 		-coarsesearch 15 \
-		-finesearch  	
+		-finesearch 6 	
 
 fi
 

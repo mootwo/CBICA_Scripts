@@ -42,6 +42,7 @@ OPTIONS:
 	-t /path/to/t1/image OPTIONAL
 	-w /path/to/t2/image OPTIONAL
 	-f /path/to/flair/image OPTIONAL
+	-m /path/to/brain/mask/in/t1ce/space OPTIONAL
 	-o /path/to/output/directory
 	-v verbose
 
@@ -56,8 +57,9 @@ flair=
 OUTDIR=
 PREFIX=
 VERBOSE=0
+mask=
 
-while getopts "ht:w:g:f:o:p:v" OPTION
+while getopts "ht:w:g:f:o:p:m:v" OPTION
 do
 	case $OPTION in
 		h)
@@ -84,6 +86,9 @@ do
 		v)
 			VERBOSE=1
 			;;
+		m)
+			mask=$OPTARG
+			;;
 		?)
 			echo "Unrecognized Options. Exiting. " 1>&2      
 			usage 1>&2
@@ -99,6 +104,10 @@ echoV "T1CE File: ${t1ce}"
 echoV "FLAIR File: ${flair}"
 echoV "OUTPUT Directory: ${OUTDIR}"
 echoV "PREFIX: ${PREFIX}"
+if [ ! -z ${mask} ]
+then
+	echoV "BrainMask: ${mask}"
+fi
 
 #Check for required input
 if [ -z ${t1ce} ] ||  [ -z ${OUTDIR} ] || [ -z ${PREFIX} ]
@@ -107,6 +116,14 @@ then
 	usage 1>&2
 	exit 1
 fi
+
+#Check if files given can be found. An empty string is detected to be a file, which we need.
+if [ ! -f ${t1} ] || [ ! -f ${t2} ] || [ ! -f ${t1ce} ] || [ ! -f ${flair} ] || [ ! -f ${mask} ]
+then
+	echo "Error. Given input not detected to exist. Exiting." 1>&2
+	exit 1
+fi
+
 
 #If output directory doesn't exist, try to make it
 if [ ! -d ${OUTDIR} ]
@@ -264,45 +281,72 @@ then
 fi
 
 #TODO: Include Mask if Provided
-#Skull Strip t1 image using BET, and then apply this mask to other modalities. If t1 image is absent, run skull stripping on t1ce
-if [ ! -z ${t1} ]
+#Run Bet if Mask not provided
+if [ -z ${mask} ]
 then
-	echoV "--->Running BET Skull-Stripping on T1 image. Then masking other modalities using this"
-	echoV "--->Processing ${PREFIX}_t1"
-	echoV "/sbiasfw/external/fsl/4.1.5/bin/bet ${TMP}/${t1_prefix}_sus_n3_r.hdr ${TMP}/SkullStrip.hdr "
-	/sbiasfw/external/fsl/4.1.5/bin/bet ${TMP}/${t1_prefix}_sus_n3_r.hdr ${TMP}/SkullStrip.hdr 
+	#Skull Strip t1 image using BET, and then apply this mask to other modalities. If t1 image is absent, run skull stripping on t1ce
+	if [ ! -z ${t1} ]
+	then
+		echoV "--->Running BET Skull-Stripping on T1 image. Then masking other modalities using this"
+		echoV "--->Processing ${PREFIX}_t1"
+		echoV "/sbiasfw/external/fsl/4.1.5/bin/bet ${TMP}/${t1_prefix}_sus_n3_r.hdr ${TMP}/SkullStrip.hdr "
+		/sbiasfw/external/fsl/4.1.5/bin/bet ${TMP}/${t1_prefix}_sus_n3_r.hdr ${TMP}/SkullStrip.hdr 
+		checkandexit $?
+		#Copy to skull stripped file to have a skull stripped version of t1, correctly named
+		cp ${TMP}/SkullStrip.hdr ${TMP}/${t1_prefix}_sus_n3_r_strip.hdr
+		checkandexit $?
+		cp ${TMP}/SkullStrip.img ${TMP}/${t1_prefix}_sus_n3_r_strip.img
+		checkandexit $?
+	fi
+	
+	#T1 image is absent. Calculate mask on t1ce
+	if [ -z ${t1} ]
+	then
+		echoV "--->Running BET Skull-Stripping on T1C image. Then masking other modalities using this"
+		echoV "--->Processing ${PREFIX}_t1ce"
+		echoV "/sbiasfw/external/fsl/4.1.5/bin/bet ${TMP}/${t1ce_prefix}_sus_n3.hdr ${TMP}/${t1ce_prefix}_sus_n3_r_strip.hdr "
+		/sbiasfw/external/fsl/4.1.5/bin/bet ${TMP}/${t1ce_prefix}_sus_n3.hdr ${TMP}/SkullStrip.hdr 
+		checkandexit $?
+		#Copy to skull stripped file to have a skull stripped version of t1, correctly named
+		cp ${TMP}/SkullStrip.hdr ${TMP}/${t1ce_prefix}_sus_n3_strip.hdr
+		checkandexit $?
+		cp ${TMP}/SkullStrip.img ${TMP}/${t1ce_prefix}_sus_n3_strip.img
+		checkandexit $?
+	fi
+	
+	#Apply t1 mask to t1ce
+	if [ ! -z ${t1} ]
+	then
+		echoV "--->Processing ${PREFIX}_t1ce"
+		echoV "/sbiasfw/external/afni/2008_07_18_1710/11_20_2009/bin/3dcalc -a ${TMP}/${t1ce_prefix}_sus_n3.hdr -b ${TMP}/SkullStrip.hdr -prefix ${TMP}/${t1ce_prefix}_sus_n3_strip.hdr -expr 'a*bool(b)'"
+		/sbiasfw/external/afni/2008_07_18_1710/11_20_2009/bin/3dcalc -a ${TMP}/${t1ce_prefix}_sus_n3.hdr -b ${TMP}/SkullStrip.hdr -prefix ${TMP}/${t1ce_prefix}_sus_n3_strip.hdr -expr 'a*bool(b)'
+		checkandexit $?
+	fi
+else
+	#Input Mask Provided. Apply to both t1ce and t1.
+	echoV "---> Masking Modalities with Input Brain Mask"
+	nifti1_test -n2 ${mask} ${TMP}/SkullStrip
 	checkandexit $?
-	#Copy to skull stripped file to have a skull stripped version of t1, correctly named
-	cp ${TMP}/SkullStrip.hdr ${TMP}/${t1_prefix}_sus_n3_r_strip.hdr
-	checkandexit $?
-	cp ${TMP}/SkullStrip.img ${TMP}/${t1_prefix}_sus_n3_r_strip.img
-	checkandexit $?
-fi
 
-#Apply t1 mask to t1ce
-if [ ! -z ${t1} ]
-then
+	#Process t1ce
 	echoV "--->Processing ${PREFIX}_t1ce"
 	echoV "/sbiasfw/external/afni/2008_07_18_1710/11_20_2009/bin/3dcalc -a ${TMP}/${t1ce_prefix}_sus_n3.hdr -b ${TMP}/SkullStrip.hdr -prefix ${TMP}/${t1ce_prefix}_sus_n3_strip.hdr -expr 'a*bool(b)'"
 	/sbiasfw/external/afni/2008_07_18_1710/11_20_2009/bin/3dcalc -a ${TMP}/${t1ce_prefix}_sus_n3.hdr -b ${TMP}/SkullStrip.hdr -prefix ${TMP}/${t1ce_prefix}_sus_n3_strip.hdr -expr 'a*bool(b)'
 	checkandexit $?
+
+	if [ ! -z ${t1} ]
+	then
+		echoV "--->Processing ${PREFIX}_t1"
+		echoV "/sbiasfw/external/afni/2008_07_18_1710/11_20_2009/bin/3dcalc -a ${TMP}/${t1_prefix}_sus_n3.hdr -b ${TMP}/SkullStrip.hdr -prefix ${TMP}/${t1_prefix}_sus_n3_strip.hdr -expr 'a*bool(b)'"
+		/sbiasfw/external/afni/2008_07_18_1710/11_20_2009/bin/3dcalc -a ${TMP}/${t1_prefix}_sus_n3.hdr -b ${TMP}/SkullStrip.hdr -prefix ${TMP}/${t1_prefix}_sus_n3_r_strip.hdr -expr 'a*bool(b)'
+		checkandexit $?
+	fi
+
+
+
 fi
 
-#T1 image is absent. Calculate mask on t1ce
-if [ -z ${t1} ]
-then
-	echoV "--->Running BET Skull-Stripping on T1C image. Then masking other modalities using this"
-	echoV "--->Processing ${PREFIX}_t1ce"
-	echoV "/sbiasfw/external/fsl/4.1.5/bin/bet ${TMP}/${t1ce_prefix}_sus_n3.hdr ${TMP}/${t1ce_prefix}_sus_n3_r_strip.hdr "
-	/sbiasfw/external/fsl/4.1.5/bin/bet ${TMP}/${t1ce_prefix}_sus_n3.hdr ${TMP}/SkullStrip.hdr 
-	checkandexit $?
-	#Copy to skull stripped file to have a skull stripped version of t1, correctly named
-	cp ${TMP}/SkullStrip.hdr ${TMP}/${t1ce_prefix}_sus_n3_strip.hdr
-	checkandexit $?
-	cp ${TMP}/SkullStrip.img ${TMP}/${t1ce_prefix}_sus_n3_strip.img
-	checkandexit $?
-fi
-
+#Apply mask to both t2 and flair
 if [ ! -z ${t2} ]
 then
 	echoV "--->Processing ${PREFIX}_t2"
