@@ -23,17 +23,15 @@ file2=$2
 
 TMP=`mktemp -d --tmpdir=${SBIA_TMPDIR} `
 
-3dcalc -a ${file1} -b ${file2} -prefix ${TMP}/diff.nii.gz -expr 'a-b'
+#If images are both unsigned, this might round up to zero if output is negative. Need to do a bool.
+3dcalc -a ${file1} -b ${file2} -prefix ${TMP}/diff.nii.gz -expr 'bool(a-b)'
 
 n=`3dBrickStat -non-zero -count ${TMP}/diff.nii.gz`
-if [ ${n} -eq 0 ]
-then
-	return 0
-else
-	return 1
-fi
 
 rm -rf ${TMP}
+
+echo ${n}
+return 0
 
 }
 
